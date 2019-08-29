@@ -71,27 +71,39 @@ namespace Microsoft.Azure.Devices.Edge.Hub.Core.Twin
                 {
                     Events.StoredReportedPropertiesFound(id);
                     Option<TwinStoreEntity> twinInfo = await this.twinStore.Get(id);
-                    await twinInfo.ForEachAsync(
+
+                    while(true){
+                        await twinInfo.ForEachAsync(
                         async ti =>
                         {
                             await ti.ReportedPropertiesPatch.ForEachAsync(
-                                async reportedPropertiesPatch =>
+                            async reportedPropertiesPatch =>
+                            {
+                                bool result = await this.cloudSync.UpdateReportedProperties(id, reportedPropertiesPatch);
+                                if (result)
                                 {
-                                    bool result = await this.cloudSync.UpdateReportedProperties(id, reportedPropertiesPatch);
-                                    if (result)
-                                    {
-                                        Events.UpdateReportedPropertiesSucceeded(id);
-                                        await this.twinStore.Update(
-                                            id,
-                                            t => new TwinStoreEntity(t.Twin, Option.None<TwinCollection>()));
-                                        twinInfo = await this.twinStore.Get(id);
-                                    }
-                                    else
-                                    {
-                                        Events.UpdateReportedPropertiesFailed(id);
-                                    }
-                                });
+                                    Events.UpdateReportedPropertiesSucceeded(id);
+                                    await this.twinStore.Update(
+                                        id,
+                                        t => new TwinStoreEntity(t.Twin, Option.None<TwinCollection>()));
+                                    twinInfo = await this.twinStore.Get(id);
+                                }
+                                else
+                                {
+                                    Events.UpdateReportedPropertiesFailed(id);
+                                    await this.twinStore.Update(
+                                        id,
+                                        t => new TwinStoreEntity(t.Twin, Option.Some<TwinCollection>(reportedPropertiesPatch)));
+                                    twinInfo = await this.twinStore.Get(id);
+                                }
+                            });
                         });
+                        twinWithReportedProperties = twinInfo.Filter(t => t.ReportedPropertiesPatch.HasValue);
+                        if (!twinWithReportedProperties.HasValue)
+                        {
+                            break;
+                        }
+                    }
                 }
             }
             else
